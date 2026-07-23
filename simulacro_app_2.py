@@ -4,6 +4,7 @@ import random
 import json
 import os
 import requests
+import pandas as pd
 from streamlit_lottie import st_lottie
 from fpdf import FPDF
 from datetime import datetime
@@ -34,40 +35,52 @@ def cargar_animacion(url):
 def generar_pdf(nombre):
     pdf = FPDF()
     pdf.add_page()
-    
-    # Borde exterior
     pdf.set_draw_color(0, 51, 102)
     pdf.set_line_width(1)
     pdf.rect(10, 10, 190, 277)
-    
     pdf.set_font("Arial", 'B', 18)
     pdf.ln(20)
     pdf.cell(0, 10, txt="CONSTANCIA DE CAPACITACION", ln=True, align='C')
-    
     pdf.ln(10)
     pdf.set_font("Arial", '', 12)
     pdf.cell(0, 10, txt="El Departamento de SMA (Seguridad Industrial y Medio Ambiente)", ln=True, align='C')
     pdf.cell(0, 10, txt="de Solintegra certifica que:", ln=True, align='C')
-    
     pdf.ln(15)
     pdf.set_font("Arial", 'B', 16)
     pdf.cell(0, 10, txt=nombre.upper(), ln=True, align='C')
-    
     pdf.ln(15)
     pdf.set_font("Arial", '', 12)
     pdf.cell(0, 10, txt="Ha completado con exito el Simulacro de Gabinete interactivo:", ln=True, align='C')
-    
     pdf.ln(5)
     pdf.set_font("Arial", 'B', 14)
     pdf.cell(0, 10, txt="DERRAME DE SUSTANCIA QUIMICA", ln=True, align='C')
-    
     pdf.ln(25)
     pdf.set_font("Arial", '', 10)
     fecha_actual = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
     pdf.cell(0, 10, txt=f"Fecha y hora de acreditacion: {fecha_actual}", ln=True, align='C')
     pdf.cell(0, 10, txt="Base Panuco I - Poza Rica, Veracruz", ln=True, align='C')
-    
     return pdf.output(dest='S').encode('latin-1')
+
+def enviar_a_google_sheets(nombre, bd_usuario):
+    # ¡Pega aquí la URL larga que te dio Google Apps Script para el reporte de derrames!
+    url_webhook = "TU_URL_DE_APPS_SCRIPT_AQUI" 
+    
+    payload = {
+        "fecha": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+        "nombre": nombre,
+        "intentos": bd_usuario.get("Intentos Totales", 1),
+        "completado": str(bd_usuario.get("Completado", True)),
+        "fase1": bd_usuario.get("1_Evacuacion_Inicial", ""),
+        "fase2": bd_usuario.get("2_Evaluacion_HDS", ""),
+        "fase3": bd_usuario.get("3_Movilizacion_Recursos", ""),
+        "fase4": bd_usuario.get("4_Contencion_Dique", ""),
+        "fase5": bd_usuario.get("5_Recoleccion_Antichispa", "")
+    }
+    
+    try:
+        requests.post(url_webhook, json=payload)
+    except Exception as e:
+        pass
 
 # --- ESTILOS CSS ---
 st.markdown("""
@@ -77,34 +90,37 @@ st.markdown("""
     .stButton>button:hover { background-color: #ffcc00; color: #1e1e1e; border: 2px solid #ffffff; }
     .inyeccion-box { background-color: #4d0000; border-left: 5px solid #ff4d4d; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
     .hipotesis-box { background-color: #003366; border-left: 5px solid #0099ff; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
+    .recuperacion-box { background-color: #422006; border-left: 5px solid #f59e0b; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
     </style>
 """, unsafe_allow_html=True)
 
 # --- INICIALIZACIÓN DE ESTADOS ---
-if 'paso' not in st.session_state:
-    st.session_state.paso = 0
-if 'nombre_usuario' not in st.session_state:
-    st.session_state.nombre_usuario = ""
-if 'tiempo_inicio' not in st.session_state:
-    st.session_state.tiempo_inicio = 0
-if 'estado_juego' not in st.session_state:
-    st.session_state.estado_juego = "inicio" 
-if 'razon_fin' not in st.session_state:
-    st.session_state.razon_fin = ""
-if 'sorpresas_disponibles' not in st.session_state:
-    st.session_state.sorpresas_disponibles = []
-if 'sorpresas_activas' not in st.session_state:
-    st.session_state.sorpresas_activas = []
-if 'sorpresa_mostrada_este_intento' not in st.session_state:
-    st.session_state.sorpresa_mostrada_este_intento = False
+if 'paso' not in st.session_state: st.session_state.paso = 0
+if 'nombre_usuario' not in st.session_state: st.session_state.nombre_usuario = ""
+if 'tiempo_inicio' not in st.session_state: st.session_state.tiempo_inicio = 0
+if 'estado_juego' not in st.session_state: st.session_state.estado_juego = "inicio" 
+if 'razon_fin' not in st.session_state: st.session_state.razon_fin = ""
+if 'datos_recuperacion' not in st.session_state: st.session_state.datos_recuperacion = {}
+if 'metrica_actual' not in st.session_state: st.session_state.metrica_actual = ""
+if 'sorpresas_disponibles' not in st.session_state: st.session_state.sorpresas_disponibles = []
+if 'sorpresas_activas' not in st.session_state: st.session_state.sorpresas_activas = []
+if 'sorpresa_mostrada_este_intento' not in st.session_state: st.session_state.sorpresa_mostrada_este_intento = False
 
 # --- LÓGICA DE JUEGO ---
 def iniciar_intento(nombre):
     st.session_state.nombre_usuario = nombre
     bd = cargar_bd()
     if nombre not in bd:
-        bd[nombre] = {"intentos": 0, "completado": False}
-    bd[nombre]["intentos"] += 1
+        bd[nombre] = {
+            "Intentos Totales": 0,
+            "Completado": False,
+            "1_Evacuacion_Inicial": "No evaluado",
+            "2_Evaluacion_HDS": "No evaluado",
+            "3_Movilizacion_Recursos": "No evaluado",
+            "4_Contencion_Dique": "No evaluado",
+            "5_Recoleccion_Antichispa": "No evaluado"
+        }
+    bd[nombre]["Intentos Totales"] += 1
     guardar_bd(bd)
     
     st.session_state.paso = 1
@@ -119,24 +135,48 @@ def iniciar_intento(nombre):
     ]
     st.session_state.tiempo_inicio = time.time()
 
-def evaluar_respuesta(es_correcta, mensaje_error, limite_segundos):
+def procesar_respuesta(es_correcta, limite_segundos, pregunta_recuperacion=None, nombre_metrica=""):
     tiempo_transcurrido = time.time() - st.session_state.tiempo_inicio
     
     if tiempo_transcurrido > limite_segundos:
         st.session_state.estado_juego = "game_over"
-        st.session_state.razon_fin = f"⏳ ¡TIEMPO AGOTADO! Tardaste {tiempo_transcurrido:.1f}s (Límite: {limite_segundos}s)."
+        st.session_state.razon_fin = f"⏳ ¡TIEMPO AGOTADO! Tardaste {tiempo_transcurrido:.1f}s. El químico sigue avanzando."
     elif not es_correcta:
-        st.session_state.estado_juego = "game_over"
-        st.session_state.razon_fin = f"❌ ERROR CRÍTICO: {mensaje_error}"
+        bd = cargar_bd()
+        bd[st.session_state.nombre_usuario][nombre_metrica] = "Requirió Recuperación"
+        guardar_bd(bd)
+        
+        st.session_state.metrica_actual = nombre_metrica
+        st.session_state.estado_juego = "recuperacion"
+        st.session_state.datos_recuperacion = pregunta_recuperacion
     else:
+        bd = cargar_bd()
+        if bd[st.session_state.nombre_usuario].get(nombre_metrica) != "Requirió Recuperación":
+            bd[st.session_state.nombre_usuario][nombre_metrica] = "Correcto a la primera"
+        guardar_bd(bd)
+        
         st.session_state.paso += 1
         st.session_state.tiempo_inicio = time.time()
         lanzar_sorpresa_aleatoria(st.session_state.paso)
 
-def lanzar_sorpresa_aleatoria(paso_actual):
-    if not st.session_state.sorpresas_disponibles:
-        return
+def evaluar_recuperacion(es_correcta):
+    if es_correcta:
+        if st.session_state.paso == 5:
+            st.session_state.estado_juego = "completado"
+        else:
+            st.session_state.paso += 1
+            st.session_state.estado_juego = "jugando"
+            st.session_state.tiempo_inicio = time.time()
+            lanzar_sorpresa_aleatoria(st.session_state.paso)
+    else:
+        bd = cargar_bd()
+        bd[st.session_state.nombre_usuario][st.session_state.metrica_actual] = "Falla Crítica"
+        guardar_bd(bd)
+        st.session_state.estado_juego = "game_over"
+        st.session_state.razon_fin = "❌ ERROR FATAL. No superaste la pregunta de recuperación. Protocolo vulnerado."
 
+def lanzar_sorpresa_aleatoria(paso_actual):
+    if not st.session_state.sorpresas_disponibles: return
     probabilidad = 0.35
     forzar = (paso_actual == 4 and not st.session_state.sorpresa_mostrada_este_intento)
     
@@ -162,8 +202,8 @@ if st.session_state.estado_juego == "inicio" or st.session_state.paso == 0:
     <div class="hipotesis-box">
         <h3>📍 Hipótesis del Ejercicio</h3>
         <p><strong>Derrame de Sustancia Química</strong></p>
-        <p>En el Taller de Hojalatería y Pintura, una camioneta de 3.5 toneladas impacta contra una estructura, provocando la ruptura total de su tanque de combustible con capacidad de 100 litros.</p>
-        <p><strong>Misión:</strong> Contener el hidrocarburo antes de que llegue a la alcantarilla pluvial y al suelo natural. Las decisiones varían en dificultad; gestiona tu tiempo sabiamente.</p>
+        <p>En el Taller de Hojalatería y Pintura, una camioneta de 3.5 toneladas impacta contra una estructura, provocando la ruptura total de su tanque de combustible (100 litros).</p>
+        <p><strong>Misión:</strong> Contener el hidrocarburo antes de que llegue a la alcantarilla pluvial y al suelo natural.</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -174,43 +214,77 @@ if st.session_state.estado_juego == "inicio" or st.session_state.paso == 0:
             iniciar_intento(nombre_input.strip())
             st.rerun()
 
+    # --- PANEL DE EXTRACCIÓN DE DATA ---
+    with st.expander("📊 Extracción de Data / Criterios de Evaluación (Jefatura SMA)"):
+        st.write("Métricas de desempeño para la evaluación del simulacro de derrame.")
+        bd_actual = cargar_bd()
+        if bd_actual:
+            df = pd.DataFrame.from_dict(bd_actual, orient='index')
+            df.index.name = 'Colaborador'
+            st.dataframe(df)
+            csv = df.to_csv().encode('utf-8')
+            st.download_button(
+                label="📥 Descargar Data (CSV)",
+                data=csv,
+                file_name=f"Data_Simulacro_Derrame_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+            )
+        else:
+            st.write("Aún no hay registros.")
+
+# --- ESTADO DE RECUPERACIÓN ---
+elif st.session_state.estado_juego == "recuperacion":
+    anim_alert = cargar_animacion("https://lottie.host/7724a872-9ea9-42b4-84c4-7db3eec90204/jFmG5t4r5X.json")
+    if anim_alert: st_lottie(anim_alert, height=120)
+
+    datos = st.session_state.datos_recuperacion
+    st.markdown(f"""
+    <div class="recuperacion-box">
+        <h4>⚠️ ALERTA DE PROCEDIMIENTO: {datos['contexto_error']}</h4>
+        <p>Para continuar en el simulacro, debes resolver esta <strong>Pregunta de Recuperación</strong>:</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.subheader(datos['pregunta'])
+    
+    if st.button(datos['opcion_correcta']):
+        evaluar_recuperacion(True)
+        st.rerun()
+    if st.button(datos['opcion_incorrecta']):
+        evaluar_recuperacion(False)
+        st.rerun()
+
 # --- MANEJO DE GAME OVER ---
 elif st.session_state.estado_juego == "game_over":
     st.error(st.session_state.razon_fin)
     lottie_fail = cargar_animacion("https://lottie.host/46db3e67-ea88-4db9-8c90-95133df19f56/9kM8gYgG5d.json")
-    if lottie_fail:
-        st_lottie(lottie_fail, height=200, key="fail")
-    st.warning("El simulacro se ha detenido por protocolo de seguridad. Debes iniciar desde el principio.")
-    
+    if lottie_fail: st_lottie(lottie_fail, height=200, key="fail")
+    st.warning("El simulacro se ha detenido por protocolo de seguridad. Inicia desde el principio.")
     if st.button("🔄 Volver a la Hipótesis Principal"):
         st.session_state.paso = 0
         st.session_state.estado_juego = "inicio"
         st.rerun()
 
-# --- MANEJO DE ÉXITO Y GENERACIÓN DE PDF ---
+# --- MANEJO DE ÉXITO ---
 elif st.session_state.estado_juego == "completado":
     bd = cargar_bd()
-    bd[st.session_state.nombre_usuario]["completado"] = True
+    bd[st.session_state.nombre_usuario]["Completado"] = True
     guardar_bd(bd)
+    
+    enviar_a_google_sheets(st.session_state.nombre_usuario, bd[st.session_state.nombre_usuario])
     
     st.balloons()
     st.success(f"🏆 ¡FELICIDADES {st.session_state.nombre_usuario.upper()}! SIMULACRO SUPERADO.")
     anim_success = cargar_animacion("https://lottie.host/5a071a93-7df6-4f40-8abf-40e8b2ed33b6/T1g5y5yY3h.json")
     if anim_success: st_lottie(anim_success, height=250)
     
-    st.write("Has demostrado un excelente dominio del protocolo de contención, protección ambiental y gestión de recursos.")
-    
-    # Generación y Botón de Descarga del PDF
     pdf_bytes = generar_pdf(st.session_state.nombre_usuario)
-    
     st.download_button(
         label="📄 DESCARGAR CONSTANCIA (PDF)",
         data=pdf_bytes,
         file_name=f"Constancia_Simulacro_{st.session_state.nombre_usuario.replace(' ', '_')}.pdf",
         mime="application/pdf"
     )
-    
-    st.markdown("---")
     if st.button("🏁 Cerrar Sesión y Volver al Inicio"):
         st.session_state.paso = 0
         st.session_state.estado_juego = "inicio"
@@ -229,40 +303,51 @@ elif st.session_state.estado_juego == "jugando":
         </div>
         """, unsafe_allow_html=True)
         anim_alert = cargar_animacion("https://lottie.host/7724a872-9ea9-42b4-84c4-7db3eec90204/jFmG5t4r5X.json")
-        if anim_alert:
-            st_lottie(anim_alert, height=100)
+        if anim_alert: st_lottie(anim_alert, height=100)
+
+    # El límite de tiempo ahora es 25s en todas las fases (como en el segundo simulacro)
+    limite = 25 
 
     # --- PASO 1 ---
     if st.session_state.paso == 1:
-        limite = 10
         st.subheader("Fase 1: El Impacto")
         st.write("¡CRASH! Se rompe el tanque y 100 litros de combustible comienzan a escurrir rápido.")
         mostrar_temporizador(limite)
         
         if st.button("Evacuar área inmediata, apagar compresores y reportar a la supervisión operativa."):
-            evaluar_respuesta(True, "", limite)
+            procesar_respuesta(True, limite, nombre_metrica="1_Evacuacion_Inicial")
             st.rerun()
         if st.button("Correr inmediatamente hacia la unidad para intentar tapar la fuga con un trapo."):
-            evaluar_respuesta(False, "Te expusiste a los vapores y generaste riesgo de explosión al no aislar el área.", limite)
+            rec = {
+                "contexto_error": "Te expusiste a los vapores y generaste riesgo de explosión al no aislar el área.",
+                "pregunta": "¿Cuál es el riesgo principal de acercarse a un derrame de hidrocarburo sin identificar y sin equipo respiratorio?",
+                "opcion_correcta": "Inhalación severa de vapores tóxicos e ignición súbita.",
+                "opcion_incorrecta": "Mancharse gravemente el uniforme de trabajo."
+            }
+            procesar_respuesta(False, limite, rec, "1_Evacuacion_Inicial")
             st.rerun()
 
     # --- PASO 2 ---
     elif st.session_state.paso == 2:
-        limite = 15
         st.subheader("Fase 2: Evaluación")
         st.write("El charco crece rápidamente. Faltan pocos metros para que el combustible alcance la alcantarilla pluvial.")
         mostrar_temporizador(limite)
         
         if st.button("Consultar las 3 etiquetas de la HDS para determinar riesgo de ignición y EPP necesario."):
-            evaluar_respuesta(True, "", limite)
+            procesar_respuesta(True, limite, nombre_metrica="2_Evaluacion_HDS")
             st.rerun()
         if st.button("Confiar en el operador, asumir que es diésel normal y mandar a la brigada sin equipo."):
-            evaluar_respuesta(False, "Nunca asumas la toxicidad. La falta de consulta de la HDS puso en riesgo a la brigada.", limite)
+            rec = {
+                "contexto_error": "Nunca asumas la toxicidad. Exponer a la brigada sin equipo es negligencia.",
+                "pregunta": "¿Para qué sirve exactamente consultar las etiquetas de la Hoja de Datos de Seguridad (HDS)?",
+                "opcion_correcta": "Para conocer los riesgos a la salud, inflamabilidad y definir el EPP adecuado.",
+                "opcion_incorrecta": "Para saber quién es el fabricante y proveedor del producto."
+            }
+            procesar_respuesta(False, limite, rec, "2_Evaluacion_HDS")
             st.rerun()
 
     # --- PASO 3 ---
     elif st.session_state.paso == 3:
-        limite = 10
         st.subheader("Fase 3: Movilización")
         st.write("Están equipados. Saben que no hay kit en Hojalatería y Pintura.")
         anim_run = cargar_animacion("https://lottie.host/3697e883-294b-48bf-a843-0f8cf807f794/RHTF8rA3qX.json")
@@ -270,42 +355,54 @@ elif st.session_state.estado_juego == "jugando":
         mostrar_temporizador(limite)
         
         if st.button("Mandar a un brigadista al Taller Mecánico Diésel por el kit y arena."):
-            evaluar_respuesta(True, "", limite)
+            procesar_respuesta(True, limite, nombre_metrica="3_Movilizacion_Recursos")
             st.rerun()
         if st.button("Mandar a todos a buscar en los almacenes a ver quién encuentra algo útil."):
-            evaluar_respuesta(False, "Desorganización operativa. Los kits tienen ubicaciones fijas que deben conocerse.", limite)
+            rec = {
+                "contexto_error": "Desorganización operativa. El tiempo es crítico y nadie sabe a dónde ir.",
+                "pregunta": "¿Por qué es crucial que todo el personal conozca la ubicación exacta de los kits antiderrame?",
+                "opcion_correcta": "Para minimizar el tiempo de respuesta y evitar la propagación incontrolable del químico.",
+                "opcion_incorrecta": "Para que los auditores vean que el personal tiene buena memoria."
+            }
+            procesar_respuesta(False, limite, rec, "3_Movilizacion_Recursos")
             st.rerun()
 
     # --- PASO 4 ---
     elif st.session_state.paso == 4:
-        limite = 15
         st.subheader("Fase 4: Contención Primaria")
         st.write("Los insumos llegaron a la escena. El combustible está muy cerca de la coladera.")
         mostrar_temporizador(limite)
         
         if st.button("Usar la arena para crear un dique rodeando la alcantarilla pluvial ANTES de taponar el tanque."):
-            evaluar_respuesta(True, "", limite)
+            procesar_respuesta(True, limite, nombre_metrica="4_Contencion_Dique")
             st.rerun()
         if st.button("Intentar taponar el tanque roto primero para evitar que siga saliendo combustible."):
-            evaluar_respuesta(False, "DAÑO AMBIENTAL. Al ignorar la coladera, el hidrocarburo llegó al drenaje pluvial.", limite)
+            rec = {
+                "contexto_error": "DAÑO AMBIENTAL. Al ignorar la coladera, el hidrocarburo llegó al drenaje pluvial.",
+                "pregunta": "En un escenario de derrame en exteriores, ¿cuál es la máxima prioridad física de contención?",
+                "opcion_correcta": "Bloquear las vías de agua, coladeras o drenajes para evitar la contaminación del manto freático.",
+                "opcion_incorrecta": "Salvar el combustible restante dentro del tanque roto."
+            }
+            procesar_respuesta(False, limite, rec, "4_Contencion_Dique")
             st.rerun()
 
     # --- PASO 5 ---
     elif st.session_state.paso == 5:
-        limite = 15
         st.subheader("Fase 5: Recolección")
         st.write("El derrame está contenido. Deben recoger la arena, pero recuerdan que NO cuentan con palas antichispa.")
         mostrar_temporizador(limite)
         
         if st.button("Evaluar recoger la arena en plástico grueso minimizando fricción y llevarla al Almacén de RP."):
-            tiempo_transcurrido = time.time() - st.session_state.tiempo_inicio
-            if tiempo_transcurrido > limite:
-                st.session_state.estado_juego = "game_over"
-                st.session_state.razon_fin = f"⏳ ¡TIEMPO AGOTADO! Tardaste {tiempo_transcurrido:.1f}s."
-            else:
-                st.session_state.estado_juego = "completado"
+            procesar_respuesta(True, limite, nombre_metrica="5_Recoleccion_Antichispa")
+            st.session_state.estado_juego = "completado"
             st.rerun()
             
         if st.button("Usar palas convencionales despacio y con cuidado para terminar el trabajo."):
-            evaluar_respuesta(False, "IGNICIÓN. Las herramientas convencionales generaron fricción estática, provocando un incendio por los vapores.", limite)
+            rec = {
+                "contexto_error": "IGNICIÓN. Las palas convencionales generaron fricción estática, provocando un incendio por vapores.",
+                "pregunta": "¿Qué tipo de herramienta es OBLIGATORIA para recoger materiales impregnados con hidrocarburos volátiles?",
+                "opcion_correcta": "Herramienta antichispa (como palas de bronce o plástico antiestático).",
+                "opcion_incorrecta": "Palas de acero inoxidable pulido."
+            }
+            procesar_respuesta(False, limite, rec, "5_Recoleccion_Antichispa")
             st.rerun()
