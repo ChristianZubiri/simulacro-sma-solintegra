@@ -63,7 +63,7 @@ def generar_pdf(nombre):
 
 def enviar_a_google_sheets(nombre, bd_usuario):
     # ¡Pega aquí la URL larga que te dio Google Apps Script para el reporte de derrames!
-    url_webhook = "TU_URL_DE_APPS_SCRIPT_AQUI" 
+    url_webhook = "https://script.google.com/macros/s/AKfycbwo_eRW8kGl95uf14U98xreqhQDD0GKJtdxauM3fi8Pi_50acfUuJ3DMXuq4yBdkOzRHw/exec" 
     
     payload = {
         "fecha": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
