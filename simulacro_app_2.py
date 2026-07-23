@@ -5,6 +5,8 @@ import json
 import os
 import requests
 from streamlit_lottie import st_lottie
+from fpdf import FPDF
+from datetime import datetime
 
 # --- CONFIGURACIÓN Y BASE DE DATOS LOCAL ---
 st.set_page_config(page_title="Simulador SMA", page_icon="☢️", layout="centered")
@@ -29,6 +31,44 @@ def cargar_animacion(url):
     except:
         return None
 
+def generar_pdf(nombre):
+    pdf = FPDF()
+    pdf.add_page()
+    
+    # Borde exterior
+    pdf.set_draw_color(0, 51, 102)
+    pdf.set_line_width(1)
+    pdf.rect(10, 10, 190, 277)
+    
+    pdf.set_font("Arial", 'B', 18)
+    pdf.ln(20)
+    pdf.cell(0, 10, txt="CONSTANCIA DE CAPACITACION", ln=True, align='C')
+    
+    pdf.ln(10)
+    pdf.set_font("Arial", '', 12)
+    pdf.cell(0, 10, txt="El Departamento de SMA (Seguridad Industrial y Medio Ambiente)", ln=True, align='C')
+    pdf.cell(0, 10, txt="de Solintegra certifica que:", ln=True, align='C')
+    
+    pdf.ln(15)
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(0, 10, txt=nombre.upper(), ln=True, align='C')
+    
+    pdf.ln(15)
+    pdf.set_font("Arial", '', 12)
+    pdf.cell(0, 10, txt="Ha completado con exito el Simulacro de Gabinete interactivo:", ln=True, align='C')
+    
+    pdf.ln(5)
+    pdf.set_font("Arial", 'B', 14)
+    pdf.cell(0, 10, txt="DERRAME DE SUSTANCIA QUIMICA", ln=True, align='C')
+    
+    pdf.ln(25)
+    pdf.set_font("Arial", '', 10)
+    fecha_actual = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    pdf.cell(0, 10, txt=f"Fecha y hora de acreditacion: {fecha_actual}", ln=True, align='C')
+    pdf.cell(0, 10, txt="Base Panuco I - Poza Rica, Veracruz", ln=True, align='C')
+    
+    return pdf.output(dest='S').encode('latin-1')
+
 # --- ESTILOS CSS ---
 st.markdown("""
     <style>
@@ -48,7 +88,7 @@ if 'nombre_usuario' not in st.session_state:
 if 'tiempo_inicio' not in st.session_state:
     st.session_state.tiempo_inicio = 0
 if 'estado_juego' not in st.session_state:
-    st.session_state.estado_juego = "inicio" # Puede ser 'inicio', 'jugando', 'game_over', 'completado'
+    st.session_state.estado_juego = "inicio" 
 if 'razon_fin' not in st.session_state:
     st.session_state.razon_fin = ""
 if 'sorpresas_disponibles' not in st.session_state:
@@ -134,9 +174,6 @@ if st.session_state.estado_juego == "inicio" or st.session_state.paso == 0:
             iniciar_intento(nombre_input.strip())
             st.rerun()
 
-    with st.expander("📊 Ver Registros de Evaluaciones (Solo Jefatura)"):
-        st.json(cargar_bd())
-
 # --- MANEJO DE GAME OVER ---
 elif st.session_state.estado_juego == "game_over":
     st.error(st.session_state.razon_fin)
@@ -150,7 +187,7 @@ elif st.session_state.estado_juego == "game_over":
         st.session_state.estado_juego = "inicio"
         st.rerun()
 
-# --- MANEJO DE ÉXITO (NUEVO ESTADO EXTRAÍDO) ---
+# --- MANEJO DE ÉXITO Y GENERACIÓN DE PDF ---
 elif st.session_state.estado_juego == "completado":
     bd = cargar_bd()
     bd[st.session_state.nombre_usuario]["completado"] = True
@@ -163,6 +200,17 @@ elif st.session_state.estado_juego == "completado":
     
     st.write("Has demostrado un excelente dominio del protocolo de contención, protección ambiental y gestión de recursos.")
     
+    # Generación y Botón de Descarga del PDF
+    pdf_bytes = generar_pdf(st.session_state.nombre_usuario)
+    
+    st.download_button(
+        label="📄 DESCARGAR CONSTANCIA (PDF)",
+        data=pdf_bytes,
+        file_name=f"Constancia_Simulacro_{st.session_state.nombre_usuario.replace(' ', '_')}.pdf",
+        mime="application/pdf"
+    )
+    
+    st.markdown("---")
     if st.button("🏁 Cerrar Sesión y Volver al Inicio"):
         st.session_state.paso = 0
         st.session_state.estado_juego = "inicio"
@@ -250,7 +298,6 @@ elif st.session_state.estado_juego == "jugando":
         mostrar_temporizador(limite)
         
         if st.button("Evaluar recoger la arena en plástico grueso minimizando fricción y llevarla al Almacén de RP."):
-            # En lugar de evaluarlo como paso 6, cambiamos directamente el estado a "completado"
             tiempo_transcurrido = time.time() - st.session_state.tiempo_inicio
             if tiempo_transcurrido > limite:
                 st.session_state.estado_juego = "game_over"
